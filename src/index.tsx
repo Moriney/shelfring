@@ -48,8 +48,9 @@ const emailOk = (s: string) => s.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.t
 /* ---------- middleware: CSRF, session, headers ---------- */
 app.use('*', async (c, next) => {
   if (c.req.method === 'POST') {
+    // a cross-site form cannot set X-Forwarded-Host, so a proxy in front (a tunnel, a preview) stays allowed
     const o = c.req.header('origin');
-    if (!o || new URL(o).host !== c.req.header('host')) return c.text('Forbidden: cross-site request', 403);
+    if (!o || ![c.req.header('host'), c.req.header('x-forwarded-host')].includes(new URL(o).host)) return c.text('Forbidden: cross-site request', 403);
   }
   const sid = getCookie(c, 'sid');
   c.set('seller', sid ? await c.env.DB.prepare('SELECT s.* FROM sessions x JOIN sellers s ON s.id = x.seller_id WHERE x.token_hash = ? AND x.expires_at > ?')
@@ -137,8 +138,10 @@ async function deletePhotos(e: E, keys: string[]) {
 }
 
 /* ---------- notifications: web push and email ---------- */
+// Local development only: the last emails, shown at /dev/mail. Known constraint: memory of one local isolate; lost on restart.
+const devMail: { to: string; subject: string; text: string; at: number }[] = [];
 async function sendEmail(e: E, to: string, subject: string, text: string) {
-  if (e.DEV) return console.log(`\n--- email to ${to}\n${subject}\n\n${text}\n---\n`);
+  if (e.DEV) { devMail.unshift({ to, subject, text, at: Date.now() }); devMail.length = Math.min(devMail.length, 30); return console.log(`\n--- email to ${to}\n${subject}\n\n${text}\n---\n`); }
   // Known constraint: only the Resend API. Upgrade path: an EMAIL_API_URL setting for other providers.
   const r = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${e.EMAIL_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: e.EMAIL_FROM, to: [to], subject, text }) });
   if (!r.ok) console.error('email failed', r.status, await r.text());
@@ -166,6 +169,10 @@ app.get('/', c => c.get('seller') ? c.redirect('/console') : page(c, {}, (
     <p class="muted">Already selling? <a href="/signin">Sign in</a> to see your shelf.</p>
   </section>
 )));
+app.get('/dev/mail', c => c.env.DEV ? page(c, { title: 'Local mailbox' }, (
+  <section class="console"><h1>Local mailbox</h1><p class="muted">Local development only. Emails since the server started, newest first.</p>
+    {devMail.length ? <ul class="reqs">{devMail.map(m => <li><div><b>{m.subject}</b><span class="muted"> · to {m.to} · {ago(m.at)}</span></div><p class="note">{m.text}</p></li>)}</ul> : <p class="muted">No emails yet.</p>}</section>
+)) : c.notFound());
 app.get('/safety', c => page(c, { title: 'Safety tips' }, (
   <section class="prose"><h1>Safety tips</h1>
     <ul>
@@ -209,18 +216,19 @@ app.post('/signin', async c => {
   later(c, sendEmail(c.env, email, `Your ${site(c.env)} code: ${code}`, `Your sign-in code is ${code}. It is valid for 10 minutes.\n\nIf you did not ask for a code, ignore this email.`));
   return c.redirect(`/signin/code?email=${encodeURIComponent(email)}&next=${encodeURIComponent(next)}`);
 });
-const CodeForm = ({ email, next, err }: { email: string; next: string; err: string[] }) => (
+const CodeForm = ({ env, email, next, err }: { env: E; email: string; next: string; err: string[] }) => (
   <section class="form"><h1>Enter the code</h1><p class="muted">We sent a 6-digit code to <b>{email}</b>. It is valid for 10 minutes.</p><Err list={err} />
     <form method="post" action="/signin/code"><input type="hidden" name="email" value={email} /><input type="hidden" name="next" value={next} />
       <label>Code<input name="code" required inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength={6} class="code" /></label>
       <button class="btn wide">Sign in</button></form>
-    <p class="muted"><a href={`/signin?next=${encodeURIComponent(next)}`}>Send a new code</a></p></section>
+    <p class="muted"><a href={`/signin?next=${encodeURIComponent(next)}`}>Send a new code</a></p>
+    {env.DEV && <p class="tip">Local development: no email is sent. <a href="/dev/mail" target="_blank">Open the local mailbox</a></p>}</section>
 );
-app.get('/signin/code', c => page(c, { title: 'Enter the code' }, <CodeForm email={str(c.req.query('email'), 254)} next={nextPath(c.req.query('next'))} err={[]} />));
+app.get('/signin/code', c => page(c, { title: 'Enter the code' }, <CodeForm env={c.env} email={str(c.req.query('email'), 254)} next={nextPath(c.req.query('next'))} err={[]} />));
 app.post('/signin/code', async c => {
   const f = await c.req.parseBody(), email = str(f.email, 254).toLowerCase(), next = nextPath(f.next), code = str(f.code, 6);
   const row = await c.env.DB.prepare('SELECT * FROM login_codes WHERE email = ?').bind(email).first<{ code_mac: string; expires_at: number; attempts: number }>();
-  const fail = (t: string) => page(c, { title: 'Enter the code' }, <CodeForm email={email} next={next} err={[t]} />);
+  const fail = (t: string) => page(c, { title: 'Enter the code' }, <CodeForm env={c.env} email={email} next={next} err={[t]} />);
   if (!row || row.expires_at < Date.now() || row.attempts >= 5) return fail('This code is not valid any more. Send a new code.');
   await c.env.DB.prepare('UPDATE login_codes SET attempts = attempts + 1 WHERE email = ?').bind(email).run();
   if (!same(row.code_mac, await hmac(c.env.HMAC_KEY, `code:${email}:${code}`))) return fail(`The code is wrong. ${4 - row.attempts} attempts left.`);
