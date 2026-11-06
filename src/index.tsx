@@ -116,10 +116,11 @@ const notice = (c: C, title: string, text: Child, status = 200, scene?: keyof ty
   return page(c, { title }, <section class="notice">{scene && raw(SCENES[scene])}<h1>{title}</h1><p>{text}</p></section>);
 };
 const Icon = ({ n }: { n: string }) => <svg class="ico" aria-hidden="true"><use href={`/icons.svg#${n}`} /></svg>;
-const Ph = ({ e, p, alt, cls = 'r45', size = 's', eager = false }: { e: E; p: Photo; alt: string; cls?: string; size?: 's' | 'l'; eager?: boolean }) => (
+// sizes: the width that the photo shows at. Each value follows the page gutters (16px, 24px from 560px) and the columns in style.css.
+const Ph = ({ e, p, alt, sizes, cls = 'r45', size = 's', eager = false, children }: { e: E; p: Photo; alt: string; sizes: string; cls?: string; size?: 's' | 'l'; eager?: boolean; children?: Child }) => (
   <span class={`ph ${cls}`} style={`--avg:${p.avg}`}>
-    <img src={purl(e, p.key, size)} srcset={`${purl(e, p.key, 's')} ${smallW(p)}w, ${purl(e, p.key, 'l')} ${p.w}w`} sizes={cls === 'r45' ? '(max-width: 560px) 50vw, 270px' : '(max-width: 560px) 100vw, 560px'}
-      width={p.w} height={p.h} alt={alt} loading={eager ? 'eager' : 'lazy'} decoding="async" fetchpriority={eager ? 'high' : undefined} />
+    <img src={purl(e, p.key, size)} srcset={`${purl(e, p.key, 's')} ${smallW(p)}w, ${purl(e, p.key, 'l')} ${p.w}w`} sizes={sizes}
+      width={p.w} height={p.h} alt={alt} loading={eager ? 'eager' : 'lazy'} decoding="async" fetchpriority={eager ? 'high' : undefined} />{children}
   </span>
 );
 const Err = ({ list }: { list: string[] }) => list.length ? <div class="err" role="alert">{list.map(t => <p>{t}</p>)}</div> : null;
@@ -361,7 +362,7 @@ const SellForm = ({ c, d, photos, err }: { c: C; d: Listing; photos: Photo[]; er
         <p class="tip"><Icon n="cam" /><span>Use daylight. Put the item on a plain surface. Show all of it.</span></p>
         {!photos.length && raw(SCENES.sellA)}
         <div class="grid3" data-photos>
-          {photos.map((ph, i) => <figure class={i ? 'pick' : 'pick cover'} data-key={ph.key}><Ph e={e} p={ph} alt={`Photo ${i + 1}`} />{i === 0 && <span class="chip cover-chip">Cover</span>}
+          {photos.map((ph, i) => <figure class={i ? 'pick' : 'pick cover'} data-key={ph.key}><Ph e={e} p={ph} alt={`Photo ${i + 1}`} sizes="(min-width: 616px) 171px, (min-width: 560px) calc((100vw - 104px) / 3), calc((100vw - 88px) / 3)" />{i === 0 && <span class="chip cover-chip">Cover</span>}
             <button type="button" class="x" data-del aria-label={`Remove photo ${i + 1}`}><Icon n="x" /></button></figure>)}
           <label class="slot" data-add hidden={photos.length >= 5}><Icon n="plus" /><span>Add photo</span><input type="file" accept="image/*" multiple data-file class="sr" /></label>
         </div>
@@ -469,19 +470,20 @@ app.get('/l/:id', async c => {
   const priceLine = l.mode === 'auction' ? (bid ? `Highest bid: ${money(bid.amount_cents, cur(e))}` : `No bids yet. Start price ${priceOf(e, l)}`) : priceOf(e, l);
   const og = { title: `${l.title} · ${l.mode === 'auction' ? 'Auction from ' + priceOf(e, l) : priceOf(e, l)}`, description: [l.condition, l.area_label ? 'For people nearby' : ''].filter(Boolean).join('. ') || site(e),
     image: abs(origin, l.og_key ? purl(e, l.og_key, 'og') : first ? purl(e, first.key, 's') : '/og.png') };
-  return page(c, { title: l.title, og }, (
+  return page(c, { title: l.title, og, wide: true }, (
     <article class="listing">
       {own && c.req.query('new') && <div class="done"><p><b>Your listing is live.</b> Share the link with the people you choose.</p><button type="button" class="btn" data-share={`${origin}/l/${l.id}`} data-title={l.title}><Icon n="share" />Share</button></div>}
-      <div class="hero">
+      <div class="pics"><div class="hero">
         <div class="track" style={`--ar:${ar.toFixed(4)}`} tabindex={0} role="group" aria-label={`${photos.length} photos`} data-track>
-          {photos.map((p, i) => <figure class="slide"><img src={purl(e, p.key, 'l')} srcset={`${purl(e, p.key, 's')} ${smallW(p)}w, ${purl(e, p.key, 'l')} ${p.w}w`} sizes="(max-width: 560px) 100vw, 560px"
+          {photos.map((p, i) => <figure class="slide"><img src={purl(e, p.key, 'l')} srcset={`${purl(e, p.key, 's')} ${smallW(p)}w, ${purl(e, p.key, 'l')} ${p.w}w`} sizes="(min-width: 1408px) 660px, (min-width: 840px) calc(50vw - 44px), (min-width: 616px) 568px, (min-width: 560px) calc(100vw - 48px), calc(100vw - 32px)"
             width={p.w} height={p.h} style={`background:${p.avg}`} alt={i ? `${l.title}, photo ${i + 1} of ${photos.length}` : l.title} loading={i ? 'lazy' : 'eager'} fetchpriority={i ? undefined : 'high'} decoding="async" /></figure>)}
         </div>
         {photos.length > 1 && <span class="count" aria-hidden="true" data-count>1 / {photos.length}</span>}
         {statusText[l.status] && <span class="chip state">{statusText[l.status]}</span>}
       </div>
       {photos.length > 1 && <div class="thumbs">{photos.map((p, i) => <button type="button" class="th" aria-current={i === 0 ? 'true' : 'false'} aria-label={`Photo ${i + 1}`} style={`--avg:${p.avg}`} data-thumb={i}><img src={purl(e, p.key, 's')} alt="" loading="lazy" /></button>)}</div>}
-      <header class="lhead"><h1>{l.title}</h1><p class="lprice">{priceLine}</p>
+      </div>
+      <div class="info"><header class="lhead"><h1>{l.title}</h1><p class="lprice">{priceLine}</p>
         <p class="meta">{l.mode === 'auction' && <span><Icon n="clock" />{!l.ends_at ? (l.status === 'active' ? 'No end date' : 'Auction ended') : l.ends_at > Date.now() ? `Ends ${when(l.ends_at)}` : `Ended ${when(l.ends_at)}`}</span>}
           <span><Icon n="clock" />Listed {ago(l.published_at ?? l.created_at)}</span>{l.area_label && <span><Icon n="globe" />For people nearby</span>}{l.password_mac && <span><Icon n="lock" />Password</span>}</p></header>
       {l.description && <p class="desc">{l.description}</p>}
@@ -493,7 +495,7 @@ app.get('/l/:id', async c => {
       {own ? <p class="owner"><a class="btn" href={`/console/l/${l.id}`}>Open in your console</a><button type="button" class="btn ghost" data-share={`${origin}/l/${l.id}`} data-title={l.title}><Icon n="share" />Share</button></p>
         : open && <RequestForm l={l} minBid={minBid} e={e} />}
       {!own && <p class="muted report"><a href={`/l/${l.id}/report`}><Icon n="flag" />Report this listing</a></p>}
-    </article>
+    </div></article>
   ));
 });
 const RequestForm = ({ l, minBid, e }: { l: Listing; minBid: number; e: E }) => (
@@ -577,16 +579,16 @@ app.get('/s/:slug', async c => {
   const shown: { l: Listing; p: Photo | undefined; bid: Req | null }[] = [];
   for (const l of all) if ((await visible(c, l)) === 'ok') shown.push({ l, p: (await photosOf(e, l.id))[0], bid: l.mode === 'auction' ? await topBid(e, l.id) : null });
   const hidden = all.some(l => l.password_mac) && shown.length < all.length, cover = await photo(e, s.cover_key), avatar = await photo(e, s.photo_key);
-  return page(c, { title: s.name, og: { title: `${s.name} on ${site(e)}`, description: s.about || `${shown.length} items`, image: abs(new URL(c.req.url).origin, cover ? purl(e, cover.key, 's') : '/og.png') } }, (
+  return page(c, { title: s.name, og: { title: `${s.name} on ${site(e)}`, description: s.about || `${shown.length} items`, image: abs(new URL(c.req.url).origin, cover ? purl(e, cover.key, 's') : '/og.png') }, wide: true }, (
     <section class="shelf">
-      {cover && <Ph e={e} p={cover} alt={`Cover photo of ${s.name}`} cls="r31" size="l" eager />}
-      <div class="seller">{avatar ? <Ph e={e} p={avatar} alt="" cls="avatar" /> : <span class="avatar" aria-hidden="true">{s.name.slice(0, 1).toUpperCase()}</span>}<h1>{s.name}</h1>{s.about && <p class="about">{s.about}</p>}</div>
+      {cover && <Ph e={e} p={cover} alt={`Cover photo of ${s.name}`} cls="r31" size="l" sizes="(min-width: 1408px) 1360px, (min-width: 560px) calc(100vw - 48px), calc(100vw - 32px)" eager />}
+      <div class="seller">{avatar ? <Ph e={e} p={avatar} alt="" cls="avatar" sizes="52px" /> : <span class="avatar" aria-hidden="true">{s.name.slice(0, 1).toUpperCase()}</span>}<h1>{s.name}</h1>{s.about && <p class="about">{s.about}</p>}</div>
       <p class="muted">{shown.length === 1 ? '1 item' : `${shown.length} items`}</p>
       {shown.length ? <div class="grid2">{shown.map(({ l, p, bid }) => (
         <a class="card" href={`/l/${l.id}`}>
-          {p ? <span class="ph r45" style={`--avg:${p.avg}`}><img src={purl(e, p.key, 's')} width={p.w} height={p.h} alt="" loading="lazy" decoding="async" />
+          {p ? <Ph e={e} p={p} alt="" sizes="(min-width: 1408px) 256px, (min-width: 1120px) calc((100vw - 128px) / 5), (min-width: 840px) calc((100vw - 108px) / 4), (min-width: 560px) calc((100vw - 88px) / 3), calc((100vw - 46px) / 2)">
             {l.mode === 'auction' && <span class="chip"><Icon n="clock" />Auction</span>}{l.status === 'reserved' && <span class="chip">Reserved</span>}
-            <span class="price">{l.mode === 'auction' && bid && <small>Highest bid</small>}{money(bid?.amount_cents ?? l.price_cents, cur(e))}</span></span> : <span class="ph r45" />}
+            <span class="price">{l.mode === 'auction' && bid && <small>Highest bid</small>}{money(bid?.amount_cents ?? l.price_cents, cur(e))}</span></Ph> : <span class="ph r45" />}
           <b>{l.title}</b><span class="muted">{l.mode === 'auction' ? (l.ends_at ? `Ends ${when(l.ends_at)}` : 'No end date') : l.condition}</span>
         </a>))}</div> : <div class="notice">{raw(SCENES.emptyA)}<p>Nothing to see here now.</p></div>}
       {hidden && <form class="pw" method="post" action={`/s/${s.slug}/unlock`}><label><span><Icon n="lock" />Have a password?</span><span class="pwrow"><input name="password" required autocomplete="off" maxlength={64} placeholder="Password" /><button class="btn small">Open</button></span></label></form>}
@@ -619,7 +621,7 @@ app.get('/console', async c => {
       <span><b>{r.title}</b><span class="muted">{priceOf(e, r)}{r.mode === 'auction' ? ' start' : ''} · {statusText[r.status] || 'Active'}{r.status === 'active' && r.mode === 'auction' && r.ends_at ? ` · ends ${when(r.ends_at)}` : ''}</span></span>
       {r.n > 0 && <span class="badge">{r.n} new</span>}</a></li>
   );
-  return page(c, { title: 'Your shelf' }, (
+  return page(c, { title: 'Your shelf', wide: true }, (
     <section class="console">
       <div class="console-h"><h1>Your shelf</h1>{s.slug && <a href={`/s/${s.slug}`}>See it as a buyer</a>}</div>
       {live.length ? <ul class="rows">{live.map(r => <Row r={r} />)}</ul>
