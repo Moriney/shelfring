@@ -10,3 +10,4 @@
 - [ ] AI moderation: the AI draft call also flags likely prohibited items (no extra request). Flags go to the admin page. Remove high-confidence cases automatically and send the seller the reason (EU Digital Services Act). v1 has the report button only.
 - [ ] Location fallback: when the IP location places a visitor outside the area, offer "Use my location" (browser GPS) and map the position to the nearest city (city list with coordinates). v1 shows a message only.
 - [ ] Fake-bid protection: Turnstile bot check and a bid limit per device per hour on the forms without login. v1 trusts bidders; the seller can remove bids.
+- [ ] Hosting outside Cloudflare: adapters for the database (SQLite or PostgreSQL), photo storage (S3-compatible), AI provider, scheduler and visitor location (a GeoIP database instead of `request.cf`), so that Shelfring also runs on Node.js, for example in Docker. v1 runs on Cloudflare only.

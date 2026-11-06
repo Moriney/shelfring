@@ -2,13 +2,15 @@
 
 Iteration 1 of the architecture brainstorm (2026-11-06). This file records the v1 decisions, the user journeys, the value proposition, the technical architecture, the deployment and the open points. Features that the brainstorm moved out of v1 are in [TODO.md](TODO.md).
 
+Shelfring is open source under the AGPL-3.0-only ([LICENSE](LICENSE)). The repository holds no personal data and no instance settings. Each deployment gets its account, resources, domain, settings and secrets from outside the repository (section 5.2).
+
 The Cloudflare and competitor facts come from checks on 2026-11-06. Prices and limits change. Check them again before setup.
 
 ## 1. Decisions for v1
 
 | Topic | Decision |
 |---|---|
-| Market | Helsinki area, Finland. EU law applies. |
+| Market | First deployment: Helsinki area, Finland. EU law applies. The code contains no Helsinki-specific values (see 5.2). |
 | Language | English only. |
 | Client | Mobile-first web app, installable (PWA). No native apps. |
 | Payment | Direct between buyer and seller. Shelfring handles no money. |
@@ -28,7 +30,8 @@ The Cloudflare and competitor facts come from checks on 2026-11-06. Prices and l
 | Notifications | Web push and email. |
 | Moderation | Report button and an admin page. |
 | Providers | Best tool for each part, at the lowest cost. |
-| Domain | Owned. DNS on Cloudflare. |
+| Hosting | Cloudflare. Each operator uses an own Cloudflare account and domain. The repository holds no instance values (see 5.2). |
+| License | AGPL-3.0-only (see LICENSE). |
 
 ## 2. Value proposition
 
@@ -129,11 +132,13 @@ Cron Trigger (every 5 min) ──► Worker  (auction end, expiry, deletion)
 Planned repository layout:
 
 ```
-src/index.tsx     routes, pages, forms
-src/*.ts          a few modules: area, auth, push, ai
-public/           app.js, sw.js, manifest.webmanifest, style.css, icons
-migrations/       D1 SQL files
-wrangler.jsonc
+src/index.tsx       routes, pages, forms
+src/*.ts            a few modules: area, auth, push, ai
+public/             app.js, sw.js, manifest.webmanifest, style.css, icons
+migrations/         D1 SQL files
+scripts/deploy.mjs  adds the instance values from environment variables, then deploys (see 5.2)
+wrangler.json       generic: binding names only; no account, resource ids, routes or settings
+LICENSE             AGPL-3.0
 ```
 
 ### 4.2 Data model (D1)
@@ -144,7 +149,7 @@ wrangler.jsonc
 | `login_codes` | email, code_mac, expires_at, attempts | 6 digits, 10 minutes, max 5 attempts. |
 | `sessions` | token_hash, seller_id, expires_at | 30 days. D1 stores only the hash. |
 | `passwords` | id, seller_id, salt, mac | One row per distinct listing password. |
-| `listings` | id, seller_id, title, category, condition, description, mode, price_cents, ends_at, area, password_id, status, expires_at | `area` is a JSON list, for example `["region:18","city:Espoo"]`. |
+| `listings` | id, seller_id, title, category, condition, description, mode, price_cents, ends_at, area, password_id, status, expires_at | `area` is a JSON list, for example `["region:FI-18","city:FI/espoo"]`. |
 | `photos` | key, listing_id, pos | `key` is a random 128-bit name in R2. |
 | `requests` | id, listing_id, kind, amount_cents, name, contact_kind, contact, note, email, buyer_key_hash, status | `kind` is `want`, `offer` or `bid`. |
 | `push_subs` | endpoint, owner, p256dh, auth | `owner` is a seller id or a buyer key hash. |
@@ -162,14 +167,15 @@ All ids are random 128-bit values, so nobody can guess a listing URL.
 // Upgrade path: "Use my location" fallback (TODO.md).
 const inArea = (cf, area) => area.some((a) =>
   a === `country:${cf?.country}` ||
-  (cf?.country === "FI" && (a === `region:${cf.regionCode}` || a === `city:${cityKey(cf.city)}`)));
+  a === `region:${cf?.country}-${cf?.regionCode}` ||
+  a === `city:${cf?.country}/${cityKey(cf?.city)}`);
 
 const visible =
   (listing.area.length === 0 || inArea(request.cf, listing.area)) &&
   (listing.password_id === null || unlocked(cookies).has(listing.password_id));
 ```
 
-Sellers always see their own listings. The area picker offers presets ("Helsinki capital region" = Helsinki, Espoo, Vantaa, Kauniainen; "Uusimaa"; "Finland") and single cities.
+Sellers always see their own listings. The area picker shows the choices from the instance setting `AREA_PRESETS` (example in 5.2). The code contains no country, region or city names.
 
 **Password:** stored as HMAC-SHA256(server key, salt + password). After a correct entry, a signed cookie holds the unlocked password ids for 30 days. Rate limit: 5 attempts per 60 s per IP address and listing; the binding allows only 10 s or 60 s periods. Minimum length: 6 characters. The seller cannot read a password again but can set a new one.
 Known constraint: this is a keyed hash, not a slow hash, because Workers Free allows 10 ms CPU per request. Ceiling: if the server key and the database leak together, weak passwords can be guessed offline. Upgrade path: PBKDF2 with a high iteration count on Workers Paid.
@@ -182,7 +188,7 @@ Known constraint: anybody who has a photo URL can open the photo. Shelfring show
 **AI draft:** the Worker sends up to 3 photos and a fixed category list to the model. The model returns JSON: title, category, condition, description. The timeout is 8 s. If the call fails, the form stays empty and the seller can still publish.
 
 - Cost estimate, with the assumption of about 1,500 input tokens and 300 output tokens: about $0.0002 per draft with `@cf/google/gemma-4-26b-a4b-it` ($0.10 / $0.30 per million tokens), about $0.0007 with `@cf/meta/llama-4-scout-17b-16e-instruct` ($0.27 / $0.85). The free 10,000 neurons per day ($0.11) cover about 170–450 drafts per day. The number of tokens per image differs between models.
-- Model selection: test 20 real listing photos with 3 candidate models and compare quality, time and cost. Workers AI retires models (several on 2026-11-15), so keep the model id in one configuration value.
+- Model selection: test 20 real listing photos with 3 candidate models and compare quality, time and cost. Workers AI retires models (several on 2026-11-15), so the model id is the instance setting `AI_MODEL`.
 
 **Auction bid:** one conditional statement. D1 runs it atomically, so two parallel bids cannot both pass the check.
 
@@ -215,7 +221,7 @@ Known constraint: each notification uses CPU time for the crypto. Ceiling: Worke
 
 ### 4.4 Calibration before launch
 
-- **IP location:** call a test page from at least 10 networks in the Helsinki area: mobile (Elisa, Telia, DNA), home broadband, office and university networks, and a VPN. Record `country`, `regionCode`, `region` and `city`. Build the city list and the name aliases from the real values, not from official names. After launch, log only the count of failed area checks per listing, not the IP addresses.
+- **IP location:** call a test page from at least 10 networks in the Helsinki area: mobile (Elisa, Telia, DNA), home broadband, office and university networks, and a VPN. Record `country`, `regionCode`, `region` and `city`. Build the city list and the name aliases from the real values, not from official names. The result goes into the instance setting `AREA_PRESETS`, not into the code. After launch, log only the count of failed area checks per listing, not the IP addresses.
 - **AI model:** 20 real photos, 3 candidate models (see 4.3).
 - **Speed:** measure the 60-second journey on a mid-range Android phone on a 4G network.
 
@@ -253,16 +259,49 @@ Mostly yes. Cloudflare plus one email provider covers v1.
 
 The per-listing area rules cannot go in the Cloudflare WAF. A zone allows 5 custom rules on Free (20 Pro, 100 Business, 1,000 Enterprise), and the WAF has no access to listing data. The Worker applies the rules from the database.
 
-### 5.2 Setup steps
+### 5.2 Instance configuration and setup
 
-1. Cloudflare account on the Free plan. The domain zone is already on Cloudflare.
-2. Create the D1 database and the R2 bucket with the EU jurisdiction. The jurisdiction can only be set at creation. R2 probably needs a payment method on file, also inside the free tier (check at setup).
-3. Connect the R2 bucket to the custom domain `img.<domain>`.
-4. Create an account at an email provider with a free tier, for example Resend or Brevo. Their quotas were not verified in this session. Add its SPF, DKIM and DMARC records in Cloudflare DNS.
-5. Set the secrets with `wrangler secret put`: `HMAC_KEY`, `VAPID_PRIVATE_KEY`, `EMAIL_API_KEY`, `ADMIN_EMAILS`.
-6. Deploy with Workers Builds (Cloudflare's Git integration): a push to `main` deploys production. D1 migrations (`wrangler d1 migrations apply`) run before the deploy.
-   Known constraint: preview versions of other branches use the production bindings. Ceiling: a preview can change production data. Upgrade path: a `staging` environment with its own D1 and R2 before previews get real use.
-7. Local development: `wrangler dev` with local D1 and R2.
+The repository holds the code and a generic `wrangler.json`: binding names, `keep_vars: true`, `secrets.required` and the Cron schedule. It has no account id, no resource ids, no routes and no settings. An operator gives the instance values from outside the repository:
+
+| Value | Source | Mechanism |
+|---|---|---|
+| Cloudflare account | `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` in the shell or CI, or `wrangler login` | Wrangler reads these environment variables. |
+| D1 database, R2 bucket | `D1_DATABASE_ID`, `R2_BUCKET_NAME`, `R2_JURISDICTION` in the shell or CI | `scripts/deploy.mjs` writes them into `wrangler.deploy.json`, which git ignores. Without them, Wrangler creates the resources on the first deploy (automatic provisioning). |
+| Domain | `CUSTOM_DOMAIN` in the shell or CI | The script adds it as a route with `custom_domain: true`. Without it, the Worker runs on its `workers.dev` address. |
+| Settings | Variables in the Cloudflare dashboard (table below) | `keep_vars: true` keeps dashboard variables on each deploy. |
+| Secrets | `wrangler secret put` or the dashboard | A deploy fails if a secret in `secrets.required` is missing. |
+| Email DNS records | The operator's DNS zone | Records from the email provider. |
+
+Settings and secrets of an instance:
+
+| Name | Kind | Example for the first deployment |
+|---|---|---|
+| `SITE_NAME` | variable | `Shelfring` |
+| `CURRENCY` | variable | `EUR` |
+| `AREA_PRESETS` | variable (JSON) | `{"Helsinki capital region":["city:FI/helsinki","city:FI/espoo","city:FI/vantaa","city:FI/kauniainen"],"Uusimaa":["region:FI-18"],"Finland":["country:FI"]}` |
+| `AI_MODEL` | variable | a Workers AI vision model id (see 4.3) |
+| `PHOTO_ORIGIN` | variable | the R2 custom domain, for example `https://img.<domain>` |
+| `EMAIL_FROM` | variable | a sender address on the operator's domain |
+| `CONTACT_EMAIL` | variable | the point of contact that the Digital Services Act requires |
+| `TERMS_URL`, `PRIVACY_URL` | variable | the operator's terms of use and privacy notice |
+| `SOURCE_URL` | variable | the source code of the running version (section 6, item 11) |
+| `VAPID_PUBLIC_KEY` | variable | the public key for web push |
+| `HMAC_KEY`, `VAPID_PRIVATE_KEY`, `EMAIL_API_KEY`, `ADMIN_EMAILS` | secret | — |
+
+Setup steps for an operator:
+
+1. Fork or clone the repository. No file changes are necessary.
+2. Optional, for EU data location: create the D1 database and the R2 bucket with the EU jurisdiction. The jurisdiction can only be set at creation. R2 probably needs a payment method on file, also inside the free tier (check at setup).
+3. Connect the R2 bucket to a custom domain and set `PHOTO_ORIGIN`.
+4. Create an account at an email provider with a free tier, for example Resend or Brevo (free-tier quotas not verified yet). Add its SPF, DKIM and DMARC records in DNS.
+5. Set the variables and secrets from the table.
+6. Deploy: run `node scripts/deploy.mjs` locally, or set it as the deploy command in Workers Builds (Cloudflare's Git integration) and keep the environment values there as build variables. With resource ids, the script runs the D1 migrations first, then `wrangler deploy -c wrangler.deploy.json`.
+7. Local development: `wrangler dev` with local D1 and R2. Local secrets go in `.dev.vars`, which git ignores.
+
+Known constraints:
+
+- Without resource ids, the docs do not state if a later deploy reuses the resources that the first deploy created. Ceiling: a later deploy could bind new, empty resources. Use deploys without ids only for test instances. Upgrade path: verify the behavior with a test deploy, or always give the ids.
+- Preview versions of other branches use the production bindings. Ceiling: a preview can change production data. Upgrade path: a second instance with its own resources for staging, before previews get real use.
 
 ### 5.3 Monthly cost
 
@@ -288,7 +327,9 @@ Values to monitor: requests per day, CPU time per request, D1 rows written per d
 7. **Data loss:** D1 Time Travel restores up to 7 days back on Workers Free (30 days on Paid). R2 has no object versioning, so a deleted photo cannot be restored.
 8. **Lock-in:** low for v1. The SQL is SQLite, R2 is S3-compatible, and Hono runs on other runtimes.
 9. **Revenue:** none in v1. The cost is $0 in the pilot phase.
-10. **Own-agent connector (TODO.md):** results of the check: Claude accepts custom remote MCP connectors with OAuth on all plans (one on Free). Claude calls the server from Anthropic's cloud, so the IP area check sees Anthropic, not the seller. Claude cannot pass a chat photo to a tool. Anthropic does not let third parties route requests through a person's Claude subscription. The ChatGPT facts are not verified, because the OpenAI hosts were blocked.
+10. **Own-agent connector (TODO.md):** results of the check: Claude accepts custom remote MCP connectors with OAuth on all plans (one on Free). Claude calls the server from Anthropic's cloud, so the IP area check sees Anthropic, not the seller. Claude cannot pass a chat photo to a tool. Anthropic does not let third parties route requests through a person's Claude subscription. The ChatGPT facts are not verified yet.
+11. **License duties of operators:** under AGPL-3.0 section 13, an operator who runs a modified Shelfring must offer the source code of the modified version to its users. The page footer links to `SOURCE_URL` for this reason.
+12. **Hosting outside Cloudflare:** v1 uses Cloudflare bindings (D1, R2, Workers AI, `request.cf`). Other hosting needs adapters (TODO.md).
 
 ## 7. Open questions for iteration 2
 

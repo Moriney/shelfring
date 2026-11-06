@@ -1,0 +1,7 @@
+# Open-source repository: local settings, secrets, local state and
+# generated instance configuration must never be committed.
+.claude/settings.local.json
+.dev.vars*
+.env*
+.wrangler/
+wrangler.deploy.json
