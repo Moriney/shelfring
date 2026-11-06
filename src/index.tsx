@@ -365,7 +365,7 @@ const SellForm = ({ c, d, photos, err }: { c: C; d: Listing; photos: Photo[]; er
         </div>
         <div class="two">
           <label><span class="if-fixed">Price</span><span class="if-auction">Start price</span><span class="money"><span>{money(0, cur(e)).replace(/[\d.,\s]/g, '')}</span><input name="price" value={price} inputmode="decimal" required pattern="[0-9]+([.,][0-9]{1,2})?" /></span></label>
-          <label class="if-auction">Ends after<select name="duration">{[1, 3, 7].map(n => <option value={n} selected={n === d.duration_days}>{n === 1 ? '1 day' : `${n} days`}</option>)}</select></label>
+          <label class="if-auction">Ends after<select name="duration">{[1, 3, 7, 0].map(n => <option value={n} selected={n === d.duration_days}>{n === 0 ? 'No end date' : n === 1 ? '1 day' : `${n} days`}</option>)}</select></label>
         </div>
         <p class="muted if-fixed">Buyers can say "I want it" or make an offer.</p>
         <p class="muted if-auction">Bids are not binding. At the end, you choose the buyer.</p>
@@ -393,7 +393,7 @@ app.post('/sell', async c => {
   const f = await c.req.parseBody({ all: true }), p = presets(e);
   const one = (k: string) => (Array.isArray(f[k]) ? (f[k] as unknown[])[0] : f[k]);
   const err: string[] = [], title = str(one('title'), 80), mode = one('mode') === 'auction' ? 'auction' : 'fixed', price = cents(one('price'));
-  const duration = [1, 3, 7].includes(Number(one('duration'))) ? Number(one('duration')) : 3;
+  const duration = [0, 1, 3, 7].includes(Number(one('duration'))) ? Number(one('duration')) : 3; // 0: no end date, the seller ends the auction
   const labels = ([] as unknown[]).concat(f.area ?? []).map(String).filter(k => p[k]);
   const pw = str(one('password'), 64), last = JSON.parse(seller?.last_audience || '{}');
   const mac = pw ? await pwMac(e, pw) : one('same_pw') && last.pw ? last.pw : null;
@@ -420,7 +420,7 @@ async function publish(c: C, s: Seller) {
   const t = Date.now(), auction = d.mode === 'auction';
   await e.DB.batch([
     e.DB.prepare("UPDATE listings SET seller_id = ?, draft_key_hash = NULL, status = 'active', published_at = ?, expires_at = ?, ends_at = ? WHERE id = ?")
-      .bind(s.id, t, auction ? null : t + 30 * DAY, auction ? t + d.duration_days * DAY : null, d.id),
+      .bind(s.id, t, auction ? null : t + 30 * DAY, auction && d.duration_days ? t + d.duration_days * DAY : null, d.id),
     e.DB.prepare('UPDATE photos SET seller_id = ? WHERE listing_id = ?').bind(s.id, d.id),
     e.DB.prepare('UPDATE sellers SET last_audience = ? WHERE id = ?').bind(JSON.stringify({ area: JSON.parse(d.area), label: d.area_label, pw: d.password_mac }), s.id)
   ]);
@@ -445,7 +445,7 @@ app.get('/l/:id', async c => {
   const bkRaw = getCookie(c, 'bk'), mine = bkRaw ? (await e.DB.prepare('SELECT * FROM requests WHERE listing_id = ? AND buyer_key_hash = ? ORDER BY created_at DESC').bind(l.id, await sha256('buyer:' + bkRaw)).all<Req>()).results : [];
   const accepted = mine.find(r => r.status === 'accepted'), first = photos[0];
   const ar = first ? Math.min(Math.max(first.w / first.h, .8), 4 / 3) : 1;
-  const open = l.status === 'active' && (l.mode === 'fixed' || (l.ends_at ?? 0) > Date.now());
+  const open = l.status === 'active' && (l.mode === 'fixed' || l.ends_at === null || l.ends_at > Date.now());
   const minBid = Math.max(l.price_cents, bid ? bid.amount_cents + 100 : 0);
   const priceLine = l.mode === 'auction' ? (bid ? `Highest bid: ${money(bid.amount_cents, cur(e))}` : `No bids yet. Start price ${priceOf(e, l)}`) : priceOf(e, l);
   const og = { title: `${l.title} · ${l.mode === 'auction' ? 'Auction from ' + priceOf(e, l) : priceOf(e, l)}`, description: [l.condition, l.area_label ? 'For people nearby' : ''].filter(Boolean).join('. ') || site(e),
@@ -463,7 +463,7 @@ app.get('/l/:id', async c => {
       </div>
       {photos.length > 1 && <div class="thumbs">{photos.map((p, i) => <button type="button" class="th" aria-current={i === 0 ? 'true' : 'false'} aria-label={`Photo ${i + 1}`} style={`--avg:${p.avg}`} data-thumb={i}><img src={purl(e, p.key, 's')} alt="" loading="lazy" /></button>)}</div>}
       <header class="lhead"><h1>{l.title}</h1><p class="lprice">{priceLine}</p>
-        <p class="meta">{l.mode === 'auction' && l.ends_at && <span><Icon n="clock" />{l.ends_at > Date.now() ? `Ends ${when(l.ends_at)}` : `Ended ${when(l.ends_at)}`}</span>}
+        <p class="meta">{l.mode === 'auction' && <span><Icon n="clock" />{!l.ends_at ? (l.status === 'active' ? 'No end date' : 'Auction ended') : l.ends_at > Date.now() ? `Ends ${when(l.ends_at)}` : `Ended ${when(l.ends_at)}`}</span>}
           <span><Icon n="clock" />Listed {ago(l.published_at ?? l.created_at)}</span>{l.area_label && <span><Icon n="globe" />For people nearby</span>}{l.password_mac && <span><Icon n="lock" />Password</span>}</p></header>
       {l.description && <p class="desc">{l.description}</p>}
       {(l.condition || l.category) && <p class="cond">{l.condition && <><b>Condition:</b> {l.condition.toLowerCase()}. </>}{l.category && <><b>Category:</b> {l.category}</>}</p>}
@@ -516,7 +516,7 @@ app.post('/l/:id/request', async c => {
     // one statement, so two parallel bids cannot both pass the check
     const r = await e.DB.prepare(`INSERT INTO requests (id, listing_id, kind, amount_cents, name, contact, note, email, buyer_key_hash, status, created_at)
       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'open', ?10
-      WHERE EXISTS (SELECT 1 FROM listings WHERE id = ?2 AND mode = 'auction' AND status = 'active' AND ends_at > ?10 AND ?4 >= price_cents)
+      WHERE EXISTS (SELECT 1 FROM listings WHERE id = ?2 AND mode = 'auction' AND status = 'active' AND (ends_at IS NULL OR ends_at > ?10) AND ?4 >= price_cents)
         AND ?4 >= COALESCE((SELECT MAX(amount_cents) + 100 FROM requests WHERE listing_id = ?2 AND kind = 'bid' AND status = 'open'), 0)`).bind(...args).run();
     if (!r.meta.changes) return notice(c, 'Bid too low', <>Somebody bid more, or the auction has ended. <a href={`/l/${l.id}`}>See the highest bid</a></>, 409);
   } else {
@@ -568,7 +568,7 @@ app.get('/s/:slug', async c => {
           {p ? <span class="ph r45" style={`--avg:${p.avg}`}><img src={purl(e, p.key, 's')} width={p.w} height={p.h} alt="" loading="lazy" decoding="async" />
             {l.mode === 'auction' && <span class="chip"><Icon n="clock" />Auction</span>}{l.status === 'reserved' && <span class="chip">Reserved</span>}
             <span class="price">{l.mode === 'auction' && bid && <small>Highest bid</small>}{money(bid?.amount_cents ?? l.price_cents, cur(e))}</span></span> : <span class="ph r45" />}
-          <b>{l.title}</b><span class="muted">{l.mode === 'auction' && l.ends_at ? `Ends ${when(l.ends_at)}` : l.condition}</span>
+          <b>{l.title}</b><span class="muted">{l.mode === 'auction' ? (l.ends_at ? `Ends ${when(l.ends_at)}` : 'No end date') : l.condition}</span>
         </a>))}</div> : <div class="notice">{raw(SCENES.emptyA)}<p>Nothing to see here now.</p></div>}
       {hidden && <form class="pw" method="post" action={`/s/${s.slug}/unlock`}><label><span><Icon n="lock" />Have a password?</span><span class="pwrow"><input name="password" required autocomplete="off" maxlength={64} placeholder="Password" /><button class="btn small">Open</button></span></label></form>}
     </section>
@@ -640,13 +640,14 @@ app.get('/console/l/:id', async c => {
           {r.status === 'open' && <div class="acts">{canPick && <Act a="accept" r={r.id} label="Accept" />}{l.mode === 'fixed' && <Act a="decline" r={r.id} label="Decline" ghost />}{r.kind === 'bid' && <Act a="remove" r={r.id} label="Remove bid" ghost />}</div>}
         </li>))}</ul> : <p class="muted">No {l.mode === 'auction' ? 'bids' : 'requests'} yet. Share the link to find a buyer.</p>}
       <div class="tools">
+        {l.status === 'active' && l.mode === 'auction' && l.ends_at === null && <Act a="end" label="End the auction" />}
         {l.status === 'active' && <Act a="close" label="Close the listing" ghost />}
         {l.status === 'expired' && <Act a="renew" label="Renew for 30 days" />}
       </div>
     </section>
   ));
 });
-app.post('/console/l/:id/:act{accept|decline|remove|release|sold|close|renew}', async c => {
+app.post('/console/l/:id/:act{accept|decline|remove|release|sold|close|renew|end}', async c => {
   const e = c.env, s = c.get('seller')!, l = await listingById(e, c.req.param('id')), act = c.req.param('act'), origin = new URL(c.req.url).origin, t = Date.now();
   if (!l || l.seller_id !== s.id) return c.notFound();
   const rId = str((await c.req.parseBody()).r, 40);
@@ -662,12 +663,14 @@ app.post('/console/l/:id/:act{accept|decline|remove|release|sold|close|renew}', 
     await e.DB.prepare("UPDATE requests SET status = 'removed', decided_at = ? WHERE id = ?").bind(t, r.id).run();
   } else if (act === 'release' && r?.status === 'accepted' && (r.decided_at ?? 0) < t - DAY) {
     await e.DB.batch([e.DB.prepare("UPDATE requests SET status = 'declined', decided_at = ? WHERE id = ?").bind(t, r.id),
-      e.DB.prepare('UPDATE listings SET status = ? WHERE id = ?').bind(l.mode === 'auction' && (l.ends_at ?? 0) <= t ? 'ended' : 'active', l.id)]);
+      e.DB.prepare('UPDATE listings SET status = ? WHERE id = ?').bind(l.mode === 'auction' && l.ends_at !== null && l.ends_at <= t ? 'ended' : 'active', l.id)]);
     tell(r, `Not accepted any more: ${l.title}`, 'The seller did not get an answer and chose another buyer.');
   } else if (act === 'sold' && l.status === 'reserved') {
     const others = (await e.DB.prepare("SELECT * FROM requests WHERE listing_id = ? AND status = 'open'").bind(l.id).all<Req>()).results;
     await e.DB.batch([e.DB.prepare("UPDATE listings SET status = 'sold', closed_at = ? WHERE id = ?").bind(t, l.id), e.DB.prepare("UPDATE requests SET status = 'declined', decided_at = ? WHERE listing_id = ? AND status = 'open'").bind(t, l.id)]);
     for (const q of others) tell(q, `Sold: ${l.title}`, 'The item went to another buyer.');
+  } else if (act === 'end' && l.status === 'active' && l.mode === 'auction' && l.ends_at === null) {
+    await e.DB.prepare("UPDATE listings SET status = 'ended', ends_at = ? WHERE id = ?").bind(t, l.id).run();
   } else if (act === 'close' && l.status === 'active') {
     await e.DB.prepare("UPDATE listings SET status = 'closed', closed_at = ? WHERE id = ?").bind(t, l.id).run();
   } else if (act === 'renew' && l.status === 'expired') {

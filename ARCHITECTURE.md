@@ -100,7 +100,7 @@ The email code comes at step 6, not at step 1. The seller sees the result before
 1. The page shows the end time and "Highest bid: €X" or "No bids yet".
 2. A bid must be at least the start price and at least €1 more than the highest bid.
 3. The previous highest bidder gets an "outbid" notification.
-4. At the end time, the seller gets a notification with all bids and selects one buyer. Then 3.3 applies. The seller does not have to select the highest bid.
+4. At the end time, the seller gets a notification with all bids and selects one buyer. An auction without an end date runs until the seller ends it. Then 3.3 applies. The seller does not have to select the highest bid.
 
 ### 3.5 Storefront
 
@@ -357,7 +357,7 @@ The first implementation uses these defaults. Each one is a setting or a few lin
 | AI draft categories | A fixed list of 15 categories and 5 conditions (`src/util.ts`). |
 | Seller data before acceptance | The display name and the storefront. The contact only after acceptance. |
 | Accepted buyer does not answer | After 24 hours the seller can choose another buyer. |
-| Auction options | 1, 3 or 7 days. Minimum step: 1 unit of the currency. |
+| Auction options | 1, 3 or 7 days, or no end date: then the seller ends the auction in the console. Minimum step: 1 unit of the currency. |
 | Revenue model | None in v1. |
 | Legal entity, terms, prohibited items | Open. `TERMS_URL` and `PRIVACY_URL` link to the operator's texts. |
 
