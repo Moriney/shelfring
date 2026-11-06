@@ -137,6 +137,13 @@
     catch { prompt('Copy the link:', data.url); }
   }));
 
+  /* ---------- menu: closes on a click outside or on Escape ---------- */
+  const menu = $('.menu');
+  if (menu) {
+    document.addEventListener('click', e => { if (menu.open && !menu.contains(e.target)) menu.open = false; });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && menu.open) { menu.open = false; $('summary', menu).focus(); } });
+  }
+
   /* ---------- web push ---------- */
   const vapid = document.body.dataset.vapid;
   const canPush = !!vapid && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;

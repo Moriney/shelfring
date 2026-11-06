@@ -33,7 +33,7 @@ The Cloudflare and competitor facts come from checks on 2026-11-06. Prices and l
 | Hosting | Cloudflare. Each operator uses an own Cloudflare account and domain. The repository holds no instance values (see 5.2). |
 | License | AGPL-3.0-only (see LICENSE). |
 | Design | Direction B "Neighbourhood Sketchbook": one pen line, one yellow highlighter, dot-grid paper (section 8). |
-| Themes | Paper (light) and chalkboard (dark) in v1. The device setting selects the theme. |
+| Themes | Paper (light) and chalkboard (dark) in v1. The device setting selects the theme; the header menu can fix light or dark (a cookie, so the server renders the theme without a flash). |
 | Motion | Calm: a drawing draws itself once; feedback only. No motion with `prefers-reduced-motion`. |
 | Voice | Plain English, short sentences. |
 | Illustrations | Objects only: no people, no hands, no faces. |

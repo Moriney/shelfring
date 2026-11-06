@@ -67,14 +67,17 @@ async function page(c: C, o: PageOpts, body: Child) {
   const e = c.env, s = c.get('seller'), origin = new URL(c.req.url).origin;
   const og = o.og === 'generic' || !o.og ? { title: site(e), description: 'A listing on ' + site(e), image: origin + '/og.png' } : o.og;
   const foot = [['/safety', 'Safety tips'], [e.TERMS_URL, 'Terms'], [e.PRIVACY_URL, 'Privacy'], [e.CONTACT_EMAIL && 'mailto:' + e.CONTACT_EMAIL, 'Contact'], [e.SOURCE_URL, 'Source code']].filter(([h]) => h);
+  const theme = ['light', 'dark'].includes(getCookie(c, 'theme') || '') ? getCookie(c, 'theme') : undefined, path = new URL(c.req.url).pathname;
+  const admin = s && (e.ADMIN_EMAILS || '').toLowerCase().split(',').map(x => x.trim()).includes(s.email);
   const html = (
-    <html lang="en">
+    <html lang="en" data-theme={theme}>
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <title>{o.title ? `${o.title} · ${site(e)}` : site(e)}</title>
-        <meta name="theme-color" content="#FDFDFB" media="(prefers-color-scheme: light)" />
-        <meta name="theme-color" content="#1F2430" media="(prefers-color-scheme: dark)" />
+        {theme ? <meta name="theme-color" content={theme === 'dark' ? '#1F2430' : '#FDFDFB'} /> : <>
+          <meta name="theme-color" content="#FDFDFB" media="(prefers-color-scheme: light)" />
+          <meta name="theme-color" content="#1F2430" media="(prefers-color-scheme: dark)" /></>}
         <meta property="og:title" content={og.title} />
         <meta property="og:description" content={og.description} />
         <meta property="og:image" content={og.image} />
@@ -89,7 +92,17 @@ async function page(c: C, o: PageOpts, body: Child) {
       <body data-vapid={e.VAPID_PUBLIC_KEY || ''} data-currency={cur(e)} data-site={site(e)}>
         <header class="bar">
           <a class="brand" href={s ? '/console' : '/'}>{raw(LOGO)}<span>{site(e)}</span></a>
-          {s ? <a class="btn small" href="/sell">Sell</a> : <span class="bar-r"><a href="/signin">Sign in</a><a class="btn small" href="/sell">Sell</a></span>}
+          <span class="bar-r"><a class="btn small" href="/sell">Sell</a>
+            <details class="menu"><summary aria-label="Menu"><Icon n="menu" /></summary>
+              <nav class="menu-p" aria-label="Menu">
+                {s ? <><a href="/console">Your shelf</a><a href="/console/profile">Your profile</a>{admin && <a href="/admin">Reports</a>}</> : <a href="/signin">Sign in</a>}
+                <a href="/sell">Sell an item</a><a href="/safety">Safety tips</a>
+                <form method="post" action="/theme" class="theme"><input type="hidden" name="back" value={path} />
+                  <p class="lbl">Theme</p>
+                  <div class="seg">{[['system', 'Device'], ['light', 'Light'], ['dark', 'Dark']].map(([v, t]) => <button name="theme" value={v} aria-pressed={(theme || 'system') === v ? 'true' : 'false'}>{t}</button>)}</div>
+                </form>
+                {s && <form method="post" action="/signout"><button class="link">Sign out</button></form>}
+              </nav></details></span>
         </header>
         <main class={o.wide ? 'page wide' : 'page'}>{body}</main>
         <footer class="foot">{foot.map(([h, t]) => <a href={h!}>{t}</a>)}</footer>
@@ -185,6 +198,12 @@ app.get('/safety', c => page(c, { title: 'Safety tips' }, (
     </ul>
   </section>
 )));
+/* theme: the device setting, or a fixed light or dark theme in a cookie, so the server renders it without a flash */
+app.post('/theme', async c => {
+  const f = await c.req.parseBody(), t = String(f.theme);
+  if (t === 'light' || t === 'dark') setCookie(c, 'theme', t, { ...cookie, maxAge: 365 * 86400 }); else deleteCookie(c, 'theme', cookie);
+  return c.redirect(nextPath(f.back));
+});
 app.get('/manifest.webmanifest', c => c.json({
   name: site(c.env), short_name: site(c.env), start_url: '/console', display: 'standalone', background_color: '#FDFDFB', theme_color: '#2D5BFF',
   icons: [{ src: '/icon-192.png', sizes: '192x192', type: 'image/png' }, { src: '/icon-512.png', sizes: '512x512', type: 'image/png' }, { src: '/icon-maskable.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }]
@@ -611,7 +630,6 @@ app.get('/console', async c => {
         <p class="muted" data-push-ios hidden>For notifications on iPhone, add this page to the Home Screen first.</p>
         <a class="btn ghost" href="/console/profile">Your profile</a>
         {s.slug && <button type="button" class="btn ghost" data-share={`${new URL(c.req.url).origin}/s/${s.slug}`} data-title={s.name}><Icon n="share" />Share your shelf</button>}
-        <form method="post" action="/signout"><button class="link">Sign out</button></form>
       </div>
     </section>
   ));
