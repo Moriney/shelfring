@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "shelfring",
+  "main": "src/index.tsx",
+  "compatibility_date": "2026-09-01",
+  "assets": { "directory": "public" },
+  "d1_databases": [{ "binding": "DB", "database_name": "shelfring", "migrations_dir": "migrations" }],
+  "r2_buckets": [{ "binding": "PHOTOS", "bucket_name": "shelfring-photos" }],
+  "ai": { "binding": "AI" },
+  "ratelimits": [
+    { "name": "RL", "namespace_id": "7301", "simple": { "limit": 20, "period": 60 } },
+    { "name": "RL_STRICT", "namespace_id": "7302", "simple": { "limit": 5, "period": 60 } }
+  ],
+  "triggers": { "crons": ["*/5 * * * *"] },
+  "keep_vars": true,
+  "secrets": { "required": ["HMAC_KEY", "VAPID_PRIVATE_KEY", "EMAIL_API_KEY", "ADMIN_EMAILS"] },
+  "observability": { "enabled": true }
+}
