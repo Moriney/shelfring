@@ -371,11 +371,12 @@ const SellForm = ({ c, d, photos, err }: { c: C; d: Listing; photos: Photo[]; er
         <p class="muted if-auction">Bids are not binding. At the end, you choose the buyer.</p>
       </fieldset>
       <fieldset><legend><b>4</b> Who can see it</legend>
-        <p class="muted">No choice means everybody with the link.</p>
-        {Object.keys(p).length > 0 && <div class="checks">{Object.keys(p).map(k => <label class="check"><input type="checkbox" name="area" value={k} checked={p[k].every(a => area.includes(a))} />People in {k}</label>)}</div>}
-        <label>Password<input name="password" minlength={6} maxlength={64} autocomplete="off" placeholder={last.pw ? 'Empty: no password' : 'Optional, at least 6 characters'} /></label>
+        <p class="muted">Everybody with the link, unless you limit it.</p>
+        {Object.keys(p).length > 0 && <div class="checks" role="group" aria-label="Area"><p class="lbl">Area <small class="muted">(approximate)</small></p>
+          {Object.keys(p).map(k => <label class="check"><input type="checkbox" name="area" value={k} checked={p[k].every(a => area.includes(a))} />People in {k}</label>)}</div>}
+        <label>Link password <small class="muted">Optional. Asked when someone opens the link.</small>
+          <input name="password" minlength={6} maxlength={64} autocomplete="off" placeholder="At least 6 characters" /></label>
         {last.pw && <label class="check"><input type="checkbox" name="same_pw" value="1" checked={d.password_mac === last.pw} />Use the same password as last time</label>}
-        <p class="muted">The area check uses the location of the internet connection. It is a soft filter: it shows the listing to people nearby, but not always only to them. For a closed group, use a password.</p>
       </fieldset>
       <button class="btn wide" data-publish>Publish</button>
       <p class="muted center">{c.get('seller') ? 'The listing goes live at once.' : 'First time? We ask for your email at the end.'}</p>

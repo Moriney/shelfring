@@ -86,6 +86,7 @@ input.code { font-size: 26px; letter-spacing: .3em; text-align: center; font-wei
 .check { display: flex; align-items: center; gap: 10px; font-weight: 600; min-height: 36px; }
 .check input { width: 20px; height: 20px; accent-color: var(--blue); }
 .checks { display: grid; gap: 4px; padding: 0; background: none; }
+.lbl { font-weight: 700; font-size: 15px; }
 .seg { display: grid; grid-template-columns: 1fr 1fr; padding: 4px; border: 2px solid var(--ink); border-radius: 14px; }
 .seg label { display: flex; justify-content: center; align-items: center; min-height: 40px; border-radius: 10px; cursor: pointer; }
 .seg input { position: absolute; opacity: 0; }
