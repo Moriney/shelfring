@@ -1,6 +1,6 @@
 # Shelfring architecture
 
-Iteration 1 of the architecture brainstorm (2026-11-06). This file records the v1 decisions, the user journeys, the value proposition, the technical architecture, the deployment and the open points. Features that the brainstorm moved out of v1 are in [TODO.md](TODO.md).
+Iteration 1 of the architecture brainstorm (2026-11-06), updated with the design decisions and the first implementation on the `mvp-init` branch. This file records the v1 decisions, the user journeys, the value proposition, the technical architecture, the deployment and the open points. Features that the brainstorm moved out of v1 are in [TODO.md](TODO.md).
 
 Shelfring is open source under the AGPL-3.0-only ([LICENSE](LICENSE)). The repository holds no personal data and no instance settings. Each deployment gets its account, resources, domain, settings and secrets from outside the repository (section 5.2).
 
@@ -32,6 +32,13 @@ The Cloudflare and competitor facts come from checks on 2026-11-06. Prices and l
 | Providers | Best tool for each part, at the lowest cost. |
 | Hosting | Cloudflare. Each operator uses an own Cloudflare account and domain. The repository holds no instance values (see 5.2). |
 | License | AGPL-3.0-only (see LICENSE). |
+| Design | Direction B "Neighbourhood Sketchbook": one pen line, one yellow highlighter, dot-grid paper (section 8). |
+| Themes | Paper (light) and chalkboard (dark) in v1. The device setting selects the theme; the header menu can fix light or dark (a cookie, so the server renders the theme without a flash). |
+| Motion | Calm: a drawing draws itself once; feedback only. No motion with `prefers-reduced-motion`. |
+| Voice | Plain English, short sentences. |
+| Illustrations | Objects only: no people, no hands, no faces. |
+| Logo | A ring drawn around a shelf with one mug, plus the site name in text. The symbol alone is the app icon. |
+| Seller photos | Shown as they are, never filtered. Shelf cards use a 4:5 crop. The link preview image is composed in the seller's browser at publish (section 4.3). |
 
 ## 2. Value proposition
 
@@ -93,7 +100,7 @@ The email code comes at step 6, not at step 1. The seller sees the result before
 1. The page shows the end time and "Highest bid: €X" or "No bids yet".
 2. A bid must be at least the start price and at least €1 more than the highest bid.
 3. The previous highest bidder gets an "outbid" notification.
-4. At the end time, the seller gets a notification with all bids and selects one buyer. Then 3.3 applies. The seller does not have to select the highest bid.
+4. At the end time, the seller gets a notification with all bids and selects one buyer. An auction without an end date runs until the seller ends it. Then 3.3 applies. The seller does not have to select the highest bid.
 
 ### 3.5 Storefront
 
@@ -123,20 +130,24 @@ Cron Trigger (every 5 min) ──► Worker  (auction end, expiry, deletion)
 | Database | D1 (SQLite), EU jurisdiction | Free tier: 500 MB per database, 5M rows read and 100k rows written per day. One primary database runs each statement atomically. |
 | Photos | R2 bucket, EU jurisdiction, public custom domain for reads | No egress fees. The CDN caches photos. No image-transformation cost, because the browser makes the sizes. |
 | AI draft | Workers AI vision model | Free 10,000 neurons per day on all plans. No extra account. |
-| Email | A third-party free tier in v1 | Cloudflare Email Sending is not available on Workers Free. |
+| Email | A third-party free tier in v1: the Resend API | Cloudflare Email Sending is not available on Workers Free. |
 | Push | Web Push (RFC 8030, 8291, 8292) with Web Crypto in the Worker | Delivery is free. No library is necessary. |
 | Rate limits | Workers Rate Limiting binding | Protects the forms that need no login. |
 | Scheduled work | One Cron Trigger, every 5 minutes | Auction end, listing expiry, data deletion. |
 | Logs, analytics | Workers Logs, Cloudflare Web Analytics (no cookies) | Free. |
 
-Planned repository layout:
+Repository layout:
 
 ```
-src/index.tsx       routes, pages, forms
-src/*.ts            a few modules: area, auth, push, ai
-public/             app.js, sw.js, manifest.webmanifest, style.css, icons
+src/index.tsx       routes, pages, forms, notifications, scheduled job
+src/util.ts         ids, MACs, area check, photo check, money, AI draft parsing
+src/push.ts         Web Push encryption (RFC 8291) and VAPID (RFC 8292)
+src/art.ts          exported drawings: empty-state scenes, logo
+public/             app.js, sw.js, style.css, icons.svg, fonts, app icons, og.png
 migrations/         D1 SQL files
+scripts/dev.mjs     local development (npm run dev)
 scripts/deploy.mjs  adds the instance values from environment variables, then deploys (see 5.2)
+test/check.ts       one runnable check (npm run check)
 wrangler.json       generic: binding names only; no account, resource ids, routes or settings
 LICENSE             AGPL-3.0
 ```
@@ -148,10 +159,9 @@ LICENSE             AGPL-3.0
 | `sellers` | id, email, name, slug, about, cover_key, contact, last_audience | The storefront is part of this row. |
 | `login_codes` | email, code_mac, expires_at, attempts | 6 digits, 10 minutes, max 5 attempts. |
 | `sessions` | token_hash, seller_id, expires_at | 30 days. D1 stores only the hash. |
-| `passwords` | id, seller_id, salt, mac | One row per distinct listing password. |
-| `listings` | id, seller_id, title, category, condition, description, mode, price_cents, ends_at, area, password_id, status, expires_at | `area` is a JSON list, for example `["region:FI-18","city:FI/espoo"]`. |
-| `photos` | key, listing_id, pos | `key` is a random 128-bit name in R2. |
-| `requests` | id, listing_id, kind, amount_cents, name, contact_kind, contact, note, email, buyer_key_hash, status | `kind` is `want`, `offer` or `bid`. |
+| `listings` | id, seller_id, draft_key_hash, title, category, condition, description, mode, price_cents, duration_days, ends_at, area, area_label, password_mac, status, og_key, expires_at, closed_at | `area` is a JSON list, for example `["region:FI-18","city:FI/espoo"]`. `status`: draft, active, reserved, ended, expired, sold, closed, removed. |
+| `photos` | key, listing_id, seller_id, pos, w, h, avg | `key` is a random 128-bit name in R2. `w`, `h` and the average colour `avg` give stable layout and a placeholder. |
+| `requests` | id, listing_id, kind, amount_cents, name, contact, note, email, buyer_key_hash, status, decided_at | `kind` is `want`, `offer` or `bid`. One free-text contact field. |
 | `push_subs` | endpoint, owner, p256dh, auth | `owner` is a seller id or a buyer key hash. |
 | `reports` | id, listing_id, reason, details, status | For the admin page. |
 
@@ -177,10 +187,13 @@ const visible =
 
 Sellers always see their own listings. The area picker shows the choices from the instance setting `AREA_PRESETS` (example in 5.2). The code contains no country, region or city names.
 
-**Password:** stored as HMAC-SHA256(server key, salt + password). After a correct entry, a signed cookie holds the unlocked password ids for 30 days. Rate limit: 5 attempts per 60 s per IP address and listing; the binding allows only 10 s or 60 s periods. Minimum length: 6 characters. The seller cannot read a password again but can set a new one.
+**Password:** stored on the listing as HMAC-SHA256(server key, password), truncated to 128 bits. Listings of a seller with the same password unlock together, which the storefront field uses. After a correct entry, a signed cookie holds the unlocked MAC values for 30 days. Rate limit: 5 attempts per 60 s per IP address and listing; the binding allows only 10 s or 60 s periods. Minimum length: 6 characters. The seller cannot read a password again but can set a new one.
 Known constraint: this is a keyed hash, not a slow hash, because Workers Free allows 10 ms CPU per request. Ceiling: if the server key and the database leak together, weak passwords can be guessed offline. Upgrade path: PBKDF2 with a high iteration count on Workers Paid.
 
-**Photo upload:** the browser draws each photo on a canvas, scales it to 1600 px and 400 px (long edge) and encodes it as WebP or JPEG, about 200 KB at 1600 px. Re-encoding removes the EXIF data, including the GPS position. The Worker checks the type, the size (max 2 MB) and that no EXIF block is present. Then it writes the photo to R2 under a random key. The upload runs while the AI draft runs.
+**Photo upload:** the browser draws each photo on a canvas, scales it to 1600 px and 800 px (long edge) and encodes it as WebP, or as JPEG if the browser cannot encode WebP, about 200 KB at 1600 px. A card on a 3× phone needs about 510 × 640 px, so 400 px was too small. The browser also measures the average colour. Re-encoding removes the EXIF data, including the GPS position. The Worker checks the type, the size (max 2 MB) and that no EXIF block is present. Then it writes the photo to R2 under a random key. The upload runs while the AI draft runs.
+
+**Link preview image:** at publish, the seller's browser draws a 1200 × 630 JPEG: the whole first photo on paper, a frame, the price and the site name. Chat apps crop `og:image` to about 1.91:1 or 1:1, so a tall photo would lose its top and bottom. The image is one more R2 object (about 120 KB). Password listings, and listings that the visitor may not see, get the fixed `og.png`.
+Known constraint: chat apps cache previews, so a later price change does not reach old previews.
 Known constraint: anybody who has a photo URL can open the photo. Shelfring shows photo URLs only after the visibility check, so a URL gives no more than a screenshot. Old URLs keep working after an audience change. Upgrade path: copy the photos to new keys when the audience changes.
 
 **Draft before sign-in:** a draft belongs to a random draft key in a cookie until the seller signs in at "Publish". The Cron run deletes unpublished drafts and their photos after 24 hours. Uploads and AI draft calls have a rate limit per IP address.
@@ -280,6 +293,7 @@ Settings and secrets of an instance:
 | `CURRENCY` | variable | `EUR` |
 | `AREA_PRESETS` | variable (JSON) | `{"Helsinki capital region":["city:FI/helsinki","city:FI/espoo","city:FI/vantaa","city:FI/kauniainen"],"Uusimaa":["region:FI-18"],"Finland":["country:FI"]}` |
 | `AI_MODEL` | variable | a Workers AI vision model id (see 4.3) |
+| `SITE_URL` | variable | the public address, for example `https://<domain>`; the Cron run uses it for links in its messages |
 | `PHOTO_ORIGIN` | variable | the R2 custom domain, for example `https://img.<domain>` |
 | `EMAIL_FROM` | variable | a sender address on the operator's domain |
 | `CONTACT_EMAIL` | variable | the point of contact that the Digital Services Act requires |
@@ -293,10 +307,10 @@ Setup steps for an operator:
 1. Fork or clone the repository. No file changes are necessary.
 2. Optional, for EU data location: create the D1 database and the R2 bucket with the EU jurisdiction. The jurisdiction can only be set at creation. R2 probably needs a payment method on file, also inside the free tier (check at setup).
 3. Connect the R2 bucket to a custom domain and set `PHOTO_ORIGIN`.
-4. Create an account at an email provider with a free tier, for example Resend or Brevo (free-tier quotas not verified yet). Add its SPF, DKIM and DMARC records in DNS.
-5. Set the variables and secrets from the table.
+4. Create an account at Resend (v1 uses its API; free-tier quota not verified yet). The sender domain must be verified there. Add its SPF, DKIM and DMARC records in DNS.
+5. Set the variables and secrets from the table. `node scripts/dev.mjs keys` prints a new `HMAC_KEY` and a VAPID key pair.
 6. Deploy: run `node scripts/deploy.mjs` locally, or set it as the deploy command in Workers Builds (Cloudflare's Git integration) and keep the environment values there as build variables. With resource ids, the script runs the D1 migrations first, then `wrangler deploy -c wrangler.deploy.json`.
-7. Local development: `wrangler dev` with local D1 and R2. Local secrets go in `.dev.vars`, which git ignores.
+7. Local development: `npm install`, then `npm run dev` (see README.md). The script writes `.dev.vars` with random local keys, applies the migrations to the local D1 database and starts `wrangler dev` with local D1 and R2. git ignores `.dev.vars` and the generated `wrangler.dev.json`.
 
 Known constraints:
 
@@ -307,7 +321,7 @@ Known constraints:
 
 | Phase | Cost |
 |---|---|
-| Pilot: inside the free limits (Workers 100k requests per day and 10 ms CPU per request; D1 500 MB, 5M rows read and 100k written per day; R2 10 GB, about 8,000 listings with 5 photos at about 1.2 MB per listing; Workers AI 10k neurons per day; email inside the provider's free tier) | $0, plus the domain fee |
+| Pilot: inside the free limits (Workers 100k requests per day and 10 ms CPU per request; D1 500 MB, 5M rows read and 100k written per day; R2 10 GB, about 6,000 listings with 5 photos at about 1.6 MB per listing; Workers AI 10k neurons per day; email inside the provider's free tier) | $0, plus the domain fee |
 | After one of these limits | Workers Paid: $5 per month. It includes 10M requests and 30M CPU-ms per month, up to 30 s CPU per request, D1 25 billion rows read and 50M rows written, and Cloudflare Email Sending with 3,000 emails per month ($0.35 per 1,000 after that). R2 above 10 GB: $0.015 per GB-month. |
 
 Values to monitor: requests per day, CPU time per request, D1 rows written per day, AI neurons per day, emails per day.
@@ -331,14 +345,27 @@ Values to monitor: requests per day, CPU time per request, D1 rows written per d
 11. **License duties of operators:** under AGPL-3.0 section 13, an operator who runs a modified Shelfring must offer the source code of the modified version to its users. The page footer links to `SOURCE_URL` for this reason.
 12. **Hosting outside Cloudflare:** v1 uses Cloudflare bindings (D1, R2, Workers AI, `request.cf`). Other hosting needs adapters (TODO.md).
 
-## 7. Open questions for iteration 2
+## 7. Defaults for the open questions
 
-1. Link previews: may chat apps that fetch from their own servers (Telegram, Slack) show the title, price and first photo of an area-only listing? This needs a User-Agent exception, which anybody can fake. Password listings stay generic.
-2. Listing lifetime: do fixed-price listings expire after 30 days, with renewal in one tap?
-3. Data retention: delete the buyer data and the photos 30 days after a listing closes?
-4. AI draft categories: a fixed list of about 15 categories?
-5. What does a buyer see about the seller before acceptance: the display name only?
-6. If the accepted buyer does not answer: can the seller accept another buyer after 24 hours?
-7. Auction options: fixed durations (1, 3 or 7 days)? Minimum step €1?
-8. Revenue model after v1.
-9. Legal entity, terms of use and the list of prohibited items.
+The first implementation uses these defaults. Each one is a setting or a few lines of code, so a later iteration can change it.
+
+| Question | v1 default |
+|---|---|
+| Link previews for area listings in chat apps that fetch from their own servers (Telegram, Slack) | Generic preview. No User-Agent exception, because anybody can fake it. |
+| Listing lifetime | Fixed-price listings expire after 30 days. The seller renews in one tap. |
+| Data retention | The Cron run deletes the photos, the requests and the listing 30 days after the listing closes. Drafts go after 24 hours. |
+| AI draft categories | A fixed list of 15 categories and 5 conditions (`src/util.ts`). |
+| Seller data before acceptance | The display name and the storefront. The contact only after acceptance. |
+| Accepted buyer does not answer | After 24 hours the seller can choose another buyer. |
+| Auction options | 1, 3 or 7 days, or no end date: then the seller ends the auction in the console. Minimum step: 1 unit of the currency. |
+| Revenue model | None in v1. |
+| Legal entity, terms, prohibited items | Open. `TERMS_URL` and `PRIVACY_URL` link to the operator's texts. |
+
+## 8. Design (direction B)
+
+- **Tokens** are in `public/style.css`: paper `#FDFDFB` with `#D3D8E3` dots, ink `#1F2233`, pencil `#5E6478`, blue `#2D5BFF`, highlighter `#FFE34F`; chalkboard `#1F2430`, `#353C4C`, `#EDEFF5`, `#A9AFC2`, `#8EA6FF`. One font: Shantell Sans (OFL), self-hosted in `public/fonts`.
+- **Contrast:** price tag `#1F2233` on `#FFE34F` 12.2:1, white on blue 5.2:1, pencil on paper 5.8:1, chalk pencil on chalkboard 7.1:1.
+- **Drawings** were exported once from the design engine: the icon sprite `public/icons.svg`, the pen frames (CSS `border-image`), three empty-state scenes and the logo in `src/art.ts`, the app icons and `og.png`. The pages have no drawing code at run time.
+- **Photos:** the pen draws a frame around each photo; it never draws on the item. No filters, no background removal, the same photo in both themes. Shelf cards crop to 4:5 from the centre; the listing page shows each photo whole. The sell form shows the card crop, so the seller sees it before publishing.
+  Known constraint: the centre crop can miss an item at the edge of the photo. Upgrade path: one focus point per photo, used as `object-position` (TODO.md).
+- **Not in v1:** background removal, automatic brightness or white balance, AI "enhance". Each changes how the item looks and costs CPU time or money.

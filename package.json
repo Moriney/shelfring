@@ -1,0 +1,18 @@
+{
+  "name": "shelfring",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "check": "wrangler types && tsc --noEmit && node test/check.ts",
+    "deploy": "node scripts/deploy.mjs"
+  },
+  "dependencies": {
+    "hono": "^4.13.16"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "wrangler": "^4.158.0"
+  }
+}

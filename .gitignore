@@ -5,3 +5,6 @@
 .env*
 .wrangler/
 wrangler.deploy.json
+wrangler.dev.json
+node_modules/
+worker-configuration.d.ts
