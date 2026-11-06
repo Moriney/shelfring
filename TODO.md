@@ -1,6 +1,6 @@
 # TODO
 
-- [ ] Storefront designs: let a seller select one of 3–5 preset designs. v1 has one simple seller page (name, photo, short text, cover image, item grid).
+- [ ] Storefront designs: let a seller select one of 3–5 preset designs. v1 has one simple seller page (name, photo, short text, cover image, item grid). The looks in `public/looks.css` can be previewed from the header menu; still to do: a seller setting stored per seller and passed as `look` to `page()` on the storefront.
 - [ ] Member groups: groups with members and join rules (invite link, work email domain). v1 uses only area and password.
 - [ ] Distance-based area: let a seller limit a listing to a distance from the item (for example 25 km). v1 uses named cities and regions.
 - [ ] Own-agent connector: a remote MCP server, so that sellers can use their own Claude or ChatGPT for listing work. The model cost is then on the seller's subscription. Seller tools first: read draft photos, write text, publish, read bids, accept a buyer.

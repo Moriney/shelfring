@@ -62,28 +62,34 @@ app.use('*', async (c, next) => {
 });
 
 /* ---------- page shell ---------- */
-type PageOpts = { title?: string; og?: { title: string; description: string; image: string } | 'generic'; wide?: boolean };
+// Looks: visual styles in public/looks.css, keyed by data-look on <html>: [value, name, theme colour light, dark].
+// The first is direction B in style.css, the default. The header menu sets a look cookie for preview; a storefront can pass a seller's look in PageOpts.
+const LOOKS = [['sketchbook', 'Sketchbook', '#FDFDFB', '#1F2430'], ['kraft', 'Kraft table', '#D2AE7C', '#2A2119'], ['market', 'Flea market', '#D2AE7C', '#2B2119'],
+  ['cutout', 'Cut paper', '#FDFDFB', '#1F2430'], ['ledger', 'Ledger', '#2443A8', '#131A36']] as const;
+type PageOpts = { title?: string; og?: { title: string; description: string; image: string } | 'generic'; wide?: boolean; look?: string };
 async function page(c: C, o: PageOpts, body: Child) {
   const e = c.env, s = c.get('seller'), origin = new URL(c.req.url).origin;
   const og = o.og === 'generic' || !o.og ? { title: site(e), description: 'A listing on ' + site(e), image: origin + '/og.png' } : o.og;
   const foot = [['/safety', 'Safety tips'], [e.TERMS_URL, 'Terms'], [e.PRIVACY_URL, 'Privacy'], [e.CONTACT_EMAIL && 'mailto:' + e.CONTACT_EMAIL, 'Contact'], [e.SOURCE_URL, 'Source code']].filter(([h]) => h);
   const theme = ['light', 'dark'].includes(getCookie(c, 'theme') || '') ? getCookie(c, 'theme') : undefined, path = new URL(c.req.url).pathname;
+  const look = LOOKS.find(l => l[0] === (getCookie(c, 'look') || o.look)) ?? LOOKS[0], styled = look !== LOOKS[0];
   const admin = s && (e.ADMIN_EMAILS || '').toLowerCase().split(',').map(x => x.trim()).includes(s.email);
   const html = (
-    <html lang="en" data-theme={theme}>
+    <html lang="en" data-theme={theme} data-look={styled ? look[0] : undefined}>
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <title>{o.title ? `${o.title} · ${site(e)}` : site(e)}</title>
-        {theme ? <meta name="theme-color" content={theme === 'dark' ? '#1F2430' : '#FDFDFB'} /> : <>
-          <meta name="theme-color" content="#FDFDFB" media="(prefers-color-scheme: light)" />
-          <meta name="theme-color" content="#1F2430" media="(prefers-color-scheme: dark)" /></>}
+        {theme ? <meta name="theme-color" content={look[theme === 'dark' ? 3 : 2]} /> : <>
+          <meta name="theme-color" content={look[2]} media="(prefers-color-scheme: light)" />
+          <meta name="theme-color" content={look[3]} media="(prefers-color-scheme: dark)" /></>}
         <meta property="og:title" content={og.title} />
         <meta property="og:description" content={og.description} />
         <meta property="og:image" content={og.image} />
         <meta property="og:site_name" content={site(e)} />
         <meta name="twitter:card" content="summary_large_image" />
         <link rel="stylesheet" href="/style.css" />
+        {styled && <link rel="stylesheet" href="/looks.css" />}
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <link rel="manifest" href="/manifest.webmanifest" />
@@ -100,6 +106,8 @@ async function page(c: C, o: PageOpts, body: Child) {
                 <form method="post" action="/theme" class="theme"><input type="hidden" name="back" value={path} />
                   <p class="lbl">Theme</p>
                   <div class="seg">{[['system', 'Device'], ['light', 'Light'], ['dark', 'Dark']].map(([v, t]) => <button name="theme" value={v} aria-pressed={(theme || 'system') === v ? 'true' : 'false'}>{t}</button>)}</div>
+                  <p class="lbl">Look</p>
+                  <div class="seg looks">{LOOKS.map(([v, t]) => <button name="look" value={v} aria-pressed={look[0] === v ? 'true' : 'false'}>{t}</button>)}</div>
                 </form>
                 {s && <form method="post" action="/signout"><button class="link">Sign out</button></form>}
               </nav></details></span>
@@ -198,10 +206,11 @@ app.get('/safety', c => page(c, { title: 'Safety tips' }, (
     </ul>
   </section>
 )));
-/* theme: the device setting, or a fixed light or dark theme in a cookie, so the server renders it without a flash */
+/* theme: the device setting, or a fixed light or dark theme in a cookie, so the server renders it without a flash; the look works the same way */
 app.post('/theme', async c => {
-  const f = await c.req.parseBody(), t = String(f.theme);
-  if (t === 'light' || t === 'dark') setCookie(c, 'theme', t, { ...cookie, maxAge: 365 * 86400 }); else deleteCookie(c, 'theme', cookie);
+  const f = await c.req.parseBody(), t = String(f.theme), l = LOOKS.find(x => x[0] === f.look);
+  if (f.look !== undefined) { if (l && l !== LOOKS[0]) setCookie(c, 'look', l[0], { ...cookie, maxAge: 365 * 86400 }); else deleteCookie(c, 'look', cookie); }
+  else if (t === 'light' || t === 'dark') setCookie(c, 'theme', t, { ...cookie, maxAge: 365 * 86400 }); else deleteCookie(c, 'theme', cookie);
   return c.redirect(nextPath(f.back));
 });
 app.get('/manifest.webmanifest', c => c.json({

@@ -33,7 +33,7 @@ The Cloudflare and competitor facts come from checks on 2026-11-06. Prices and l
 | Hosting | Cloudflare. Each operator uses an own Cloudflare account and domain. The repository holds no instance values (see 5.2). |
 | License | AGPL-3.0-only (see LICENSE). |
 | Design | Direction B "Neighbourhood Sketchbook": one pen line, one yellow highlighter, dot-grid paper (section 8). |
-| Themes | Paper (light) and chalkboard (dark) in v1. The device setting selects the theme; the header menu can fix light or dark (a cookie, so the server renders the theme without a flash). |
+| Themes | Paper (light) and chalkboard (dark) in v1. The device setting selects the theme; the header menu can fix light or dark (a cookie, so the server renders the theme without a flash). The same menu previews four other looks (section 8). |
 | Motion | Calm: a drawing draws itself once; feedback only. No motion with `prefers-reduced-motion`. |
 | Voice | Plain English, short sentences. |
 | Illustrations | Objects only: no people, no hands, no faces. |
@@ -369,3 +369,4 @@ The first implementation uses these defaults. Each one is a setting or a few lin
 - **Photos:** the pen draws a frame around each photo; it never draws on the item. No filters, no background removal, the same photo in both themes. Shelf cards crop to 4:5 from the centre; the listing page shows each photo whole. The sell form shows the card crop, so the seller sees it before publishing.
   Known constraint: the centre crop can miss an item at the edge of the photo. Upgrade path: one focus point per photo, used as `object-position` (TODO.md).
 - **Not in v1:** background removal, automatic brightness or white balance, AI "enhance". Each changes how the item looks and costs CPU time or money.
+- **Looks (preview):** `public/looks.css` holds four other looks that mix direction A ("Kirpputori Table": kraft paper, masking tape, manila tags, rubber stamps) with B: Kraft table, Flea market, Cut paper and Ledger. A look changes colours, textures, surfaces and ornaments only, never the layout; Sketchbook (B) stays the default and needs no extra file. The header menu stores the choice in a `look` cookie; the server then sets `data-look` on `<html>` and loads `looks.css`. `page()` takes a `look` option, so a storefront can apply a seller's look later. Each look has a light and a dark variant; all text pairs are WCAG AA, the lowest is 4.88:1 (pencil on kraft, Flea market).
