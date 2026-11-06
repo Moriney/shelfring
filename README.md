@@ -21,7 +21,9 @@ Open http://localhost:8787. The first run writes `.dev.vars` with random local k
 
 Checks: `npm run check` (types, then `test/check.ts`).
 
-Deployment and instance settings: [ARCHITECTURE.md](ARCHITECTURE.md), section 5.
+## Host an instance
+
+[DEPLOY.md](DEPLOY.md) lists the accounts and plans you need, every setting and secret, the steps to production, the production checks, updates, backups, the monthly cost and a private deployment pipeline. The architecture is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## License
 

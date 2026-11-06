@@ -27,7 +27,7 @@ if (!existsSync('.dev.vars')) {
     SITE_URL: 'http://localhost:8787',
     EMAIL_API_KEY: 'unused-in-dev',
     ADMIN_EMAILS: 'admin@example.com',
-    // example presets for the first deployment; see ARCHITECTURE.md 5.2
+    // example presets for the first deployment; see DEPLOY.md 3.7
     AREA_PRESETS: JSON.stringify({ 'Helsinki capital region': ['city:FI/helsinki', 'city:FI/espoo', 'city:FI/vantaa', 'city:FI/kauniainen'], Uusimaa: ['region:FI-18'], Finland: ['country:FI'] }),
     // the location that the area check sees locally: country,regionCode,city
     DEV_CF: 'FI,18,Helsinki'

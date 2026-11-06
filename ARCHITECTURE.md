@@ -149,6 +149,7 @@ scripts/dev.mjs     local development (npm run dev)
 scripts/deploy.mjs  adds the instance values from environment variables, then deploys (see 5.2)
 test/check.ts       one runnable check (npm run check)
 wrangler.json       generic: binding names only; no account, resource ids, routes or settings
+DEPLOY.md           operator guide: accounts, settings, setup, checks, private pipeline
 LICENSE             AGPL-3.0
 ```
 
@@ -185,7 +186,7 @@ const visible =
   (listing.password_id === null || unlocked(cookies).has(listing.password_id));
 ```
 
-Sellers always see their own listings. The area picker shows the choices from the instance setting `AREA_PRESETS` (example in 5.2). The code contains no country, region or city names.
+Sellers always see their own listings. The area picker shows the choices from the instance setting `AREA_PRESETS` (example in DEPLOY.md 3.7). The code contains no country, region or city names.
 
 **Password:** stored on the listing as HMAC-SHA256(server key, password), truncated to 128 bits. Listings of a seller with the same password unlock together, which the storefront field uses. After a correct entry, a signed cookie holds the unlocked MAC values for 30 days. Rate limit: 5 attempts per 60 s per IP address and listing; the binding allows only 10 s or 60 s periods. Minimum length: 6 characters. The seller cannot read a password again but can set a new one.
 Known constraint: this is a keyed hash, not a slow hash, because Workers Free allows 10 ms CPU per request. Ceiling: if the server key and the database leak together, weak passwords can be guessed offline. Upgrade path: PBKDF2 with a high iteration count on Workers Paid.
@@ -272,50 +273,15 @@ Mostly yes. Cloudflare plus one email provider covers v1.
 
 The per-listing area rules cannot go in the Cloudflare WAF. A zone allows 5 custom rules on Free (20 Pro, 100 Business, 1,000 Enterprise), and the WAF has no access to listing data. The Worker applies the rules from the database.
 
-### 5.2 Instance configuration and setup
+### 5.2 Instance configuration
 
 The repository holds the code and a generic `wrangler.json`: binding names, `keep_vars: true`, `secrets.required` and the Cron schedule. It has no account id, no resource ids, no routes and no settings. An operator gives the instance values from outside the repository:
 
-| Value | Source | Mechanism |
-|---|---|---|
-| Cloudflare account | `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` in the shell or CI, or `wrangler login` | Wrangler reads these environment variables. |
-| D1 database, R2 bucket | `D1_DATABASE_ID`, `R2_BUCKET_NAME`, `R2_JURISDICTION` in the shell or CI | `scripts/deploy.mjs` writes them into `wrangler.deploy.json`, which git ignores. Without them, Wrangler creates the resources on the first deploy (automatic provisioning). |
-| Domain | `CUSTOM_DOMAIN` in the shell or CI | The script adds it as a route with `custom_domain: true`. Without it, the Worker runs on its `workers.dev` address. |
-| Settings | Variables in the Cloudflare dashboard (table below) | `keep_vars: true` keeps dashboard variables on each deploy. |
-| Secrets | `wrangler secret put` or the dashboard | A deploy fails if a secret in `secrets.required` is missing. |
-| Email DNS records | The operator's DNS zone | Records from the email provider. |
+- `scripts/deploy.mjs` reads `D1_DATABASE_ID`, `R2_BUCKET_NAME`, `R2_JURISDICTION` and `CUSTOM_DOMAIN` from the environment, writes them into `wrangler.deploy.json` (git ignores it), applies the D1 migrations and deploys.
+- The settings (`SITE_URL`, `PHOTO_ORIGIN`, `AREA_PRESETS`, `AI_MODEL` and others) are Worker variables. `keep_vars: true` keeps dashboard variables on each deploy.
+- The keys (`HMAC_KEY`, `VAPID_PRIVATE_KEY`, `EMAIL_API_KEY`, `ADMIN_EMAILS`) are Worker secrets. A deploy fails if one of them is missing.
 
-Settings and secrets of an instance:
-
-| Name | Kind | Example for the first deployment |
-|---|---|---|
-| `SITE_NAME` | variable | `Shelfring` |
-| `CURRENCY` | variable | `EUR` |
-| `AREA_PRESETS` | variable (JSON) | `{"Helsinki capital region":["city:FI/helsinki","city:FI/espoo","city:FI/vantaa","city:FI/kauniainen"],"Uusimaa":["region:FI-18"],"Finland":["country:FI"]}` |
-| `AI_MODEL` | variable | a Workers AI vision model id (see 4.3) |
-| `SITE_URL` | variable | the public address, for example `https://<domain>`; the Cron run uses it for links in its messages |
-| `PHOTO_ORIGIN` | variable | the R2 custom domain, for example `https://img.<domain>` |
-| `EMAIL_FROM` | variable | a sender address on the operator's domain |
-| `CONTACT_EMAIL` | variable | the point of contact that the Digital Services Act requires |
-| `TERMS_URL`, `PRIVACY_URL` | variable | the operator's terms of use and privacy notice |
-| `SOURCE_URL` | variable | the source code of the running version (section 6, item 11) |
-| `VAPID_PUBLIC_KEY` | variable | the public key for web push |
-| `HMAC_KEY`, `VAPID_PRIVATE_KEY`, `EMAIL_API_KEY`, `ADMIN_EMAILS` | secret | — |
-
-Setup steps for an operator:
-
-1. Fork or clone the repository. No file changes are necessary.
-2. Optional, for EU data location: create the D1 database and the R2 bucket with the EU jurisdiction. The jurisdiction can only be set at creation. R2 probably needs a payment method on file, also inside the free tier (check at setup).
-3. Connect the R2 bucket to a custom domain and set `PHOTO_ORIGIN`.
-4. Create an account at Resend (v1 uses its API; free-tier quota not verified yet). The sender domain must be verified there. Add its SPF, DKIM and DMARC records in DNS.
-5. Set the variables and secrets from the table. `node scripts/dev.mjs keys` prints a new `HMAC_KEY` and a VAPID key pair.
-6. Deploy: run `node scripts/deploy.mjs` locally, or set it as the deploy command in Workers Builds (Cloudflare's Git integration) and keep the environment values there as build variables. With resource ids, the script runs the D1 migrations first, then `wrangler deploy -c wrangler.deploy.json`.
-7. Local development: `npm install`, then `npm run dev` (see README.md). The script writes `.dev.vars` with random local keys, applies the migrations to the local D1 database and starts `wrangler dev` with local D1 and R2. git ignores `.dev.vars` and the generated `wrangler.dev.json`.
-
-Known constraints:
-
-- Without resource ids, the docs do not state if a later deploy reuses the resources that the first deploy created. Ceiling: a later deploy could bind new, empty resources. Use deploys without ids only for test instances. Upgrade path: verify the behavior with a test deploy, or always give the ids.
-- Preview versions of other branches use the production bindings. Ceiling: a preview can change production data. Upgrade path: a second instance with its own resources for staging, before previews get real use.
+[DEPLOY.md](DEPLOY.md) has the accounts and plans, the full list of settings and secrets, the setup steps, the production checks, updates, backups, the cost and a private deployment pipeline.
 
 ### 5.3 Monthly cost
 
@@ -324,7 +290,7 @@ Known constraints:
 | Pilot: inside the free limits (Workers 100k requests per day and 10 ms CPU per request; D1 500 MB, 5M rows read and 100k written per day; R2 10 GB, about 6,000 listings with 5 photos at about 1.6 MB per listing; Workers AI 10k neurons per day; email inside the provider's free tier) | $0, plus the domain fee |
 | After one of these limits | Workers Paid: $5 per month. It includes 10M requests and 30M CPU-ms per month, up to 30 s CPU per request, D1 25 billion rows read and 50M rows written, and Cloudflare Email Sending with 3,000 emails per month ($0.35 per 1,000 after that). R2 above 10 GB: $0.015 per GB-month. |
 
-Values to monitor: requests per day, CPU time per request, D1 rows written per day, AI neurons per day, emails per day.
+Values to monitor: requests per day, CPU time per request, D1 rows written per day, AI neurons per day, emails per day. The full cost table and the reasons for Workers Paid are in DEPLOY.md, sections 1 and 7.
 
 ## 6. Other matters to consider
 
